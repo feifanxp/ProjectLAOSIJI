@@ -75,3 +75,47 @@ npm run dev
 
 前端地址：`http://localhost:5173/`
 
+## Cloudflare 部署（Pages + Worker）
+
+本项目推荐拆分为：
+
+- `frontend` -> Cloudflare Pages（静态站点）
+- `worker` -> Cloudflare Worker（`/api/plan` 与 `/api/health`）
+
+### 1) 登录 Cloudflare
+
+```bash
+npx wrangler@latest login
+```
+
+### 2) 部署 Worker API
+
+```bash
+cd worker
+npx wrangler@latest secret put VOLC_API_KEY
+npx wrangler@latest secret put VOLC_ENDPOINT
+npx wrangler@latest secret put VOLC_MODEL
+npx wrangler@latest secret put DEEPSEEK_API_KEY
+npx wrangler@latest secret put DEEPSEEK_ENDPOINT
+npx wrangler@latest secret put DEEPSEEK_MODEL
+npx wrangler@latest deploy
+```
+
+部署后会得到一个 Worker URL，例如：
+`https://projectlaosiji-api.<your-subdomain>.workers.dev`
+
+### 3) 部署 Frontend 到 Pages
+
+```bash
+cd frontend
+npm install
+VITE_API_BASE_URL=https://projectlaosiji-api.<your-subdomain>.workers.dev/api npm run build
+npx wrangler@latest pages deploy dist --project-name projectlaosiji-web
+```
+
+### 4) 生产环境变量
+
+Pages 构建时需要设置：
+
+- `VITE_API_BASE_URL` = `你的 Worker URL + /api`
+
