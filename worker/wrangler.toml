@@ -1,0 +1,11 @@
+name = "projectlaosiji-api"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# Configure these secrets via CLI:
+# wrangler secret put VOLC_API_KEY
+# wrangler secret put VOLC_ENDPOINT
+# wrangler secret put VOLC_MODEL
+# wrangler secret put DEEPSEEK_API_KEY
+# wrangler secret put DEEPSEEK_ENDPOINT
+# wrangler secret put DEEPSEEK_MODEL
