@@ -43,6 +43,18 @@ function flattenTree(root: TaskNode | null): TaskNode[] {
   return result;
 }
 
+function getNodeByPath(root: TaskNode | null, path: string | null): TaskNode | null {
+  if (!root) return null;
+  if (!path || path === "root") return root;
+  const indices = path.split("-").slice(1).map((value) => Number(value));
+  let current: TaskNode | undefined = root;
+  for (const index of indices) {
+    if (!current?.children || Number.isNaN(index) || !current.children[index]) return null;
+    current = current.children[index];
+  }
+  return current ?? null;
+}
+
 function App() {
   const [question, setQuestion] = useState(() => pickRandomQuestion());
   const [provider, setProvider] = useState<"doubao" | "deepseek">("deepseek");
@@ -199,10 +211,21 @@ function App() {
   const allNodes = useMemo(() => flattenTree(tree), [tree]);
   const mainNodes = allNodes.filter((node) => node.questType === "main");
   const sideNodes = allNodes.filter((node) => node.questType === "side");
-  const bossNodes = allNodes.filter((node) => node.questType === "boss");
   const mainCompleted = mainNodes.filter((node) => node.completed).length;
   const mainTotal = mainNodes.length;
   const bossUnlocked = mainTotal > 0 && mainCompleted / mainTotal >= 0.8;
+  const activePath = selectedPath ?? "root";
+  const activeNode = useMemo(() => getNodeByPath(tree, activePath), [tree, activePath]);
+  const activeLoading = loadingPaths.has(activePath);
+  const activeStuckLoading = stuckLoadingPaths.has(activePath);
+  const activeStateText = activeLoading
+    ? "拆解中"
+    : activeStuckLoading
+      ? "救援中"
+      : activeNode?.completed
+        ? "已完成"
+        : "进行中";
+  const keywordList = activeNode?.keywords ?? [];
 
   return (
     <div className="app">
@@ -211,42 +234,66 @@ function App() {
         <p>主线推进、支线补给、BOSS 收官、弹性教程</p>
       </header>
 
-      <main className="app-main">
-        <section className="panel input-panel">
-          <h2 className="panel-title">任务目标输入</h2>
-          <form onSubmit={handleSubmit} className="question-form">
-            <div className="question-input">
-              <label htmlFor="question">你的问题</label>
-              <textarea
-                id="question"
-                placeholder="例如：学会搭建个人博客"
-                value={question}
-                onChange={(event) => setQuestion(event.target.value)}
-                rows={5}
-              />
-            </div>
-            <div className="action-row">
-              <div className="provider-row">
-                <span className="provider-label">选择模型</span>
-                <select
-                  className="provider-select"
-                  value={provider}
-                  onChange={(event) => setProvider(event.target.value as "doubao" | "deepseek")}
-                >
-                  <option value="doubao">豆包</option>
-                  <option value="deepseek">DeepSeek</option>
-                </select>
+      <main className="app-shell">
+        <aside className="panel sidebar-panel">
+          <div className="panel-head">
+            <h2 className="panel-title">任务列表</h2>
+            <span className="small-muted">{allNodes.length} 条</span>
+          </div>
+          {tree ? (
+            <TaskTree
+              node={tree}
+              path="root"
+              selectedPath={activePath}
+              onSelect={setSelectedPath}
+              loadingPaths={loadingPaths}
+              stuckLoadingPaths={stuckLoadingPaths}
+            />
+          ) : (
+            <div className="placeholder">提交问题后，这里显示树形任务列表。</div>
+          )}
+        </aside>
+
+        <section className="panel detail-panel">
+          <div className="task-status-header">
+            <div className="task-status-title-wrap">
+              <h2 className="panel-title">{activeNode ? `当前任务：${activeNode.title}` : "当前任务：未选择"}</h2>
+              <div className="status-chip-row">
+                {activeNode?.questType ? (
+                  <span className={`task-quest-tag ${activeNode.questType}`}>{activeNode.questType}</span>
+                ) : null}
+                <span className={`detail-state ${activeNode?.completed ? "done" : "active"}`}>{activeStateText}</span>
+                <span className="detail-progress">主线 {mainCompleted}/{mainTotal || 0}</span>
               </div>
-              <button type="submit" className="submit-button" disabled={loading}>
-                {loading ? "正在拆解..." : "开始拆解"}
+            </div>
+            <div className="status-actions">
+              <button
+                type="button"
+                className="complete-button"
+                disabled={!activeNode}
+                onClick={() => activeNode && handleToggleComplete(activePath)}
+              >
+                {activeNode?.completed ? "已完成" : "完成"}
+              </button>
+              <button
+                type="button"
+                className="split-button"
+                disabled={!activeNode || activeLoading}
+                onClick={() => activeNode && handleExpand(activePath, activeNode.title)}
+              >
+                {activeLoading ? "拆解中..." : "拆解"}
+              </button>
+              <button
+                type="button"
+                className="stuck-button"
+                disabled={!activeNode || activeStuckLoading}
+                onClick={() => activeNode && handleStuck(activePath, activeNode.title)}
+              >
+                {activeStuckLoading ? "救援中..." : "我卡住了"}
               </button>
             </div>
-          </form>
-          {error ? <div className="error">{error}</div> : null}
-        </section>
+          </div>
 
-        <section className="panel tree-panel">
-          <h2 className="panel-title">任务树</h2>
           <div className="overview-cards">
             <div className="overview-card">
               <span className="overview-label">主线进度</span>
@@ -265,28 +312,76 @@ function App() {
               </strong>
             </div>
           </div>
-          {tree ? (
-            <TaskTree
-              node={tree}
-              path="root"
-              selectedPath={selectedPath}
-              onSelect={setSelectedPath}
-              onExpand={handleExpand}
-              onStuck={handleStuck}
-              onToggleComplete={handleToggleComplete}
-              loadingPaths={loadingPaths}
-              stuckLoadingPaths={stuckLoadingPaths}
-            />
-          ) : (
-            <div className="placeholder">
-              {loading ? "等待模型返回结果..." : "提交问题后，这里会显示任务树。"}
+
+          {activeNode ? (
+            <div className="task-detail-card">
+              <div className="detail-group">
+                <h3>任务描述</h3>
+                <p>{activeNode.description || "暂无描述。你可以点击“拆解”生成更细步骤。"}</p>
+              </div>
+
+              <div className="detail-group">
+                <h3>执行步骤</h3>
+                <p>{activeNode.how || "暂无步骤。建议先点击“拆解”生成下一层行动项。"}</p>
+              </div>
+
+              <div className="detail-group hint">
+                <h3>弹性教程提示</h3>
+                <p>
+                  {activeNode.hint ||
+                    "你已掌握的内容会简述跳过；如果卡住，请点击“我卡住了”触发救援任务。"}
+                </p>
+              </div>
+
+              {keywordList.length ? (
+                <div className="detail-group">
+                  <h3>关键词解释</h3>
+                  <ul className="keyword-list">
+                    {keywordList.map((keyword) => (
+                      <li key={`${keyword.term}-${keyword.explanation}`}>
+                        <strong>{keyword.term}</strong>
+                        <span>{keyword.explanation || "暂无解释"}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
             </div>
+          ) : (
+            <div className="placeholder">先在底部输入问题并开始拆解。</div>
           )}
-          {tree && bossNodes.length === 0 ? (
-            <div className="placeholder">提示：你可以继续拆解主线，系统会在后续阶段生成 BOSS 验收任务。</div>
-          ) : null}
         </section>
       </main>
+
+      <footer className="composer-wrap">
+        <form onSubmit={handleSubmit} className="composer-form">
+          <textarea
+            id="question"
+            placeholder="继续输入问题，或补充你的卡点…"
+            value={question}
+            onChange={(event) => setQuestion(event.target.value)}
+            rows={2}
+            className="composer-input"
+          />
+          <div className="composer-controls">
+            <div className="provider-row">
+              <span className="provider-label">模型</span>
+              <select
+                className="provider-select"
+                value={provider}
+                onChange={(event) => setProvider(event.target.value as "doubao" | "deepseek")}
+              >
+                <option value="doubao">豆包</option>
+                <option value="deepseek">DeepSeek</option>
+              </select>
+            </div>
+            <button type="submit" className="submit-button" disabled={loading}>
+              {loading ? "正在拆解..." : "开始拆解"}
+            </button>
+          </div>
+        </form>
+        {error ? <div className="error">{error}</div> : null}
+      </footer>
     </div>
   );
 }
